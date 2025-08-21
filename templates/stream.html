@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="text-center">
+    <h2 class="mb-3"><i class="fas fa-play-circle"></i> {{ video.original_filename }}</h2>
+    <div class="ratio ratio-16x9 mb-4">
+        <video controls autoplay>
+            <source src="{{ url_for('serve_video', filename=video.filename) }}" type="video/mp4">
+        </video>
+    </div>
+    <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">
+        <i class="fas fa-arrow-left"></i> Back to Dashboard
+    </a>
+</div>
+{% endblock %}

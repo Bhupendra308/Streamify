@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<h2 class="mb-3">📂 Your Video Library</h2>
+<a href="{{ url_for('upload') }}" class="btn btn-success mb-4">➕ Upload New Video</a>
+
+<div class="row">
+    {% for video in videos %}
+    <div class="col-md-4 mb-4">
+        <div class="card shadow-lg border-0">
+            <video class="card-img-top" controls preload="metadata">
+                <source src="{{ url_for('serve_video', filename=video.filename) }}" type="video/mp4">
+            </video>
+            <div class="card-body">
+                <h6 class="card-title">{{ video.original_filename }}</h6>
+                <a href="{{ url_for('stream_video', video_id=video.id) }}" class="btn btn-primary btn-sm">▶ Watch</a>
+                <a href="{{ url_for('delete_video', video_id=video.id) }}" 
+                   class="btn btn-danger btn-sm"
+                   onclick="return confirm('Delete this video?')">🗑 Delete</a>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <p>No videos uploaded yet. Start by uploading one!</p>
+    {% endfor %}
+</div>
+{% endblock %}
