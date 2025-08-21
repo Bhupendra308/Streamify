@@ -3,19 +3,25 @@
 <h2 class="mb-3">📂 Your Video Library</h2>
 <a href="{{ url_for('upload') }}" class="btn btn-success mb-4">➕ Upload New Video</a>
 
-<div class="row">
+<div class="mb-3">
+    <input type="text" id="searchInput" class="form-control" placeholder="Search videos...">
+</div>
+
+<div class="row" id="videoGrid">
     {% for video in videos %}
-    <div class="col-md-4 mb-4">
+    <div class="col-md-4 mb-4 video-card">
         <div class="card shadow-lg border-0">
             <video class="card-img-top" controls preload="metadata">
                 <source src="{{ url_for('serve_video', filename=video.filename) }}" type="video/mp4">
             </video>
             <div class="card-body">
-                <h6 class="card-title">{{ video.original_filename }}</h6>
+                <h6 class="card-title" id="title-{{ video.id }}">{{ video.original_filename }}</h6>
                 <a href="{{ url_for('stream_video', video_id=video.id) }}" class="btn btn-primary btn-sm">▶ Watch</a>
-                <a href="{{ url_for('delete_video', video_id=video.id) }}" 
-                   class="btn btn-danger btn-sm"
-                   onclick="return confirm('Delete this video?')">🗑 Delete</a>
+                <button class="btn btn-warning btn-sm" onclick="openEditModal({{ video.id }}, '{{ video.original_filename }}')">✏ Edit</button>
+                <form action="{{ url_for('delete_video', video_id=video.id) }}" method="POST" class="d-inline" onsubmit="return confirm('Delete this video?')">
+                    <button type="submit" class="btn btn-danger btn-sm">🗑 Delete</button>
+                </form>
+                <a href="{{ url_for('serve_video', filename=video.filename) }}" class="btn btn-info btn-sm" download>⬇ Download</a>
             </div>
         </div>
     </div>
@@ -23,4 +29,79 @@
     <p>No videos uploaded yet. Start by uploading one!</p>
     {% endfor %}
 </div>
+
+<!-- Edit Modal Overlay -->
+<div class="modal fade" id="editModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form id="editForm">
+        <div class="modal-header">
+          <h5 class="modal-title">Edit Video Title</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="editVideoId">
+          <div class="mb-3">
+            <label for="editTitle" class="form-label">Title</label>
+            <input type="text" id="editTitle" class="form-control" required>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn btn-primary">Save</button>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    // Search filter
+    const searchInput = document.getElementById('searchInput');
+    const videoCards = document.querySelectorAll('.video-card');
+    searchInput.addEventListener('input', () => {
+        const query = searchInput.value.toLowerCase();
+        videoCards.forEach(card => {
+            const title = card.querySelector('.card-title').textContent.toLowerCase();
+            card.style.display = title.includes(query) ? '' : 'none';
+        });
+    });
+
+    // Edit Modal
+    const editModalEl = document.getElementById('editModal');
+    const editModal = new bootstrap.Modal(editModalEl);
+    window.openEditModal = (videoId, currentTitle) => {
+        document.getElementById('editVideoId').value = videoId;
+        document.getElementById('editTitle').value = currentTitle;
+        editModal.show();
+    };
+
+    // AJAX Update
+    document.getElementById('editForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const videoId = document.getElementById('editVideoId').value;
+        const newTitle = document.getElementById('editTitle').value;
+
+        try {
+            const response = await fetch(`/edit_video/${videoId}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({title: newTitle})
+            });
+
+            if (response.ok) {
+                document.getElementById(`title-${videoId}`).textContent = newTitle;
+                editModal.hide();
+            } else {
+                const error = await response.json();
+                alert(error.message || 'Error updating title.');
+            }
+        } catch (err) {
+            console.error(err);
+            alert('Network error.');
+        }
+    });
+});
+</script>
 {% endblock %}
