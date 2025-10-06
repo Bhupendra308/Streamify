@@ -2,9 +2,8 @@ import os
 import subprocess
 from flask import (
     Flask, render_template, request, redirect, url_for, flash,
-    send_from_directory, abort
+    send_from_directory, jsonify
 )
-from flask import jsonify, request
 from flask_login import (
     LoginManager, login_user, logout_user, login_required, current_user
 )
@@ -13,26 +12,28 @@ from werkzeug.utils import secure_filename
 from sqlalchemy import or_
 from models import db, User, Video
 from config import Config
+from dotenv import load_dotenv
 
 
-# -----------------------------------------------------------------------------
-# App & Extensions
-# -----------------------------------------------------------------------------
+# -------------------------------------------------------------------------
+# App Initialization
+# -------------------------------------------------------------------------
+load_dotenv()  # ✅ Load environment variables from .env
 app = Flask(__name__)
 app.config.from_object(Config)
+
+# Initialize database and login manager
 db.init_app(app)
-
-login_manager = LoginManager()
+login_manager = LoginManager(app)
 login_manager.login_view = "login"
-login_manager.init_app(app)
 
-# Ensure video upload folder exists
+# Ensure upload folder exists
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
 
-# -----------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 # Helpers
-# -----------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 def allowed_file(filename: str) -> bool:
     """Return True if filename has an allowed extension."""
     return (
@@ -46,11 +47,6 @@ def load_user(user_id):
     return User.query.get(int(user_id))
 
 
-# Initialize DB
-with app.app_context():
-    db.create_all()
-
-
 def _ensure_owner(video: Video):
     """Abort if the current user does not own the video."""
     if video.user_id != current_user.id:
@@ -59,9 +55,9 @@ def _ensure_owner(video: Video):
     return True
 
 
-# -----------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 # Routes
-# -----------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 @app.route("/")
 def index():
     if current_user.is_authenticated:
@@ -116,14 +112,10 @@ def logout():
     return redirect(url_for("login"))
 
 
-# ---------------- Dashboard (Manage) ----------------
+# ---------------- Dashboard ----------------
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    """
-    Dashboard shows the user's videos with manage options.
-    Supports search via ?q= query string against title and original filename.
-    """
     q = request.args.get("q", "", type=str).strip()
     base_query = Video.query.filter_by(user_id=current_user.id)
 
@@ -160,11 +152,11 @@ def upload():
             # Convert to mp4 if needed
             ext = filename.rsplit(".", 1)[1].lower()
             if ext != "mp4":
-                mp4_filename = filename.rsplit(".", 1)[0] + ".mp4"
+                mp4_filename = f"{os.path.splitext(filename)[0]}.mp4"
                 mp4_save_path = os.path.join(app.config["UPLOAD_FOLDER"], mp4_filename)
-                # -y to overwrite, simple conversion (you can tune codec/bitrate later)
-                subprocess.run(["ffmpeg", "-i", save_path, mp4_save_path, "-y"], check=False)
-                # Remove original, keep mp4
+                subprocess.run(
+                    ["ffmpeg", "-i", save_path, mp4_save_path, "-y"], check=False
+                )
                 try:
                     os.remove(save_path)
                 except OSError:
@@ -172,7 +164,6 @@ def upload():
                 filename = mp4_filename
                 save_path = mp4_save_path
 
-            # Default title = original name (without extension)
             default_title = os.path.splitext(original_name)[0]
 
             video = Video(
@@ -203,8 +194,8 @@ def stream_video(video_id):
     return render_template("stream.html", video=video)
 
 
-# ---------------- Edit Video (title/description) ----------------
-@app.route('/edit_video/<int:video_id>', methods=['POST'])
+# ---------------- Edit Video ----------------
+@app.route("/edit_video/<int:video_id>", methods=["POST"])
 @login_required
 def edit_video(video_id):
     video = Video.query.get_or_404(video_id)
@@ -212,12 +203,13 @@ def edit_video(video_id):
         return jsonify({"error": "Access denied"}), 403
 
     data = request.get_json()
-    new_title = data.get('title', '').strip()
+    new_title = data.get("title", "").strip()
     if new_title:
         video.original_filename = new_title
         db.session.commit()
         return jsonify({"success": True})
     return jsonify({"error": "Invalid title"}), 400
+
 
 # ---------------- Download Video ----------------
 @app.route("/video/<int:video_id>/download")
@@ -230,17 +222,14 @@ def download_video(video_id):
         app.config["UPLOAD_FOLDER"],
         video.filename,
         as_attachment=True,
-        download_name=video.original_filename if video.original_filename else video.filename,
+        download_name=video.original_filename or video.filename,
     )
 
 
-# ---------------- Serve Video File (inline) ----------------
+# ---------------- Serve Video Inline ----------------
 @app.route("/videos/<path:filename>")
 @login_required
 def serve_video(filename):
-    """
-    Serves a file from UPLOAD_FOLDER (inline). Use /download for attachment.
-    """
     return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
 
 
@@ -248,21 +237,15 @@ def serve_video(filename):
 @app.route("/video/<int:video_id>/delete", methods=["POST"])
 @login_required
 def delete_video(video_id):
-    """
-    Delete a video the user owns.
-    Note: Method is POST for safety. Use a small form button in templates.
-    """
     video = Video.query.get_or_404(video_id)
     if not _ensure_owner(video):
         return redirect(url_for("dashboard"))
 
-    # remove file from storage
     file_path = os.path.join(app.config["UPLOAD_FOLDER"], video.filename)
     if os.path.exists(file_path):
         try:
             os.remove(file_path)
         except OSError:
-            # If deletion fails, still remove DB row to avoid dangling entries
             pass
 
     db.session.delete(video)
@@ -271,6 +254,10 @@ def delete_video(video_id):
     return redirect(url_for("dashboard"))
 
 
-# ---------------- Run App ----------------
+# -------------------------------------------------------------------------
+# App Runner
+# -------------------------------------------------------------------------
 if __name__ == "__main__":
-    app.run(debug=True)
+    with app.app_context():
+        db.create_all()  # ✅ ensures DB tables exist before running
+    app.run(host="0.0.0.0", port=5000, debug=False)
