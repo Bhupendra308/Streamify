@@ -117,7 +117,7 @@ def logout():
 @login_required
 def dashboard():
     q = request.args.get("q", "", type=str).strip()
-    base_query = Video.query.filter_by(user_id=current_user.id)
+    base_query = Video.query
 
     if q:
         like = f"%{q}%"
@@ -165,11 +165,12 @@ def upload():
                 save_path = mp4_save_path
 
             default_title = os.path.splitext(original_name)[0]
+            title = request.form.get("title", "").strip() or default_title
 
             video = Video(
                 filename=filename,
                 original_filename=original_name,
-                title=default_title,
+                title=title,
                 description=None,
                 user_id=current_user.id,
             )
@@ -189,8 +190,6 @@ def upload():
 @login_required
 def stream_video(video_id):
     video = Video.query.get_or_404(video_id)
-    if not _ensure_owner(video):
-        return redirect(url_for("dashboard"))
     return render_template("stream.html", video=video)
 
 
@@ -205,7 +204,7 @@ def edit_video(video_id):
     data = request.get_json()
     new_title = data.get("title", "").strip()
     if new_title:
-        video.original_filename = new_title
+        video.title = new_title
         db.session.commit()
         return jsonify({"success": True})
     return jsonify({"error": "Invalid title"}), 400
